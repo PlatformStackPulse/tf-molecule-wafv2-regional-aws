@@ -1,21 +1,69 @@
 # Molecule: WAFv2 Web ACL (REGIONAL scope) with API Gateway Association
 
-module "web_acl" {
-  source = "git::https://github.com/PlatformStackPulse/tf-atom-wafv2-web-acl-aws.git?ref=918046583c7de2e902385e21abd6cffabb070b07"
+resource "aws_wafv2_web_acl" "this" {
+  count = module.this.enabled ? 1 : 0
 
-  context       = module.this.context
-  name          = var.name
-  scope         = "REGIONAL"
-  managed_rules = var.managed_rules
-  rate_limit    = var.rate_limit
+  name        = module.this.id
+  description = "WAF for API Gateway (Regional)"
+  scope       = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  dynamic "rule" {
+    for_each = var.managed_rules
+    content {
+      name     = rule.value.name
+      priority = rule.value.priority
+      override_action {
+        none {}
+      }
+      statement {
+        managed_rule_group_statement {
+          name        = rule.value.name
+          vendor_name = rule.value.vendor
+        }
+      }
+      visibility_config {
+        cloudwatch_metrics_enabled = true
+        metric_name                = "${module.this.id}-${rule.value.name}"
+        sampled_requests_enabled   = true
+      }
+    }
+  }
+
+  rule {
+    name     = "RateLimitRule"
+    priority = 99
+    action {
+      block {}
+    }
+    statement {
+      rate_based_statement {
+        limit              = var.rate_limit
+        aggregate_key_type = "IP"
+      }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${module.this.id}-rate-limit"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = module.this.id
+    sampled_requests_enabled   = true
+  }
+
+  tags = module.this.tags
 }
 
-module "association" {
-  source = "git::https://github.com/PlatformStackPulse/tf-atom-wafv2-web-acl-association-aws.git?ref=b5cb29249dc3f6fa02b3ba0ac03f4b05b49ed8d0"
+resource "aws_wafv2_web_acl_association" "this" {
+  count = module.this.enabled ? 1 : 0
 
-  context      = module.this.context
-  web_acl_arn  = module.web_acl.arn
   resource_arn = var.resource_arn
-
-  depends_on = [module.web_acl]
+  web_acl_arn  = aws_wafv2_web_acl.this[0].arn
 }
