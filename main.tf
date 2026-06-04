@@ -4,7 +4,7 @@ resource "aws_wafv2_web_acl" "this" {
   count = module.this.enabled ? 1 : 0
 
   name        = module.this.id
-  description = "WAF for API Gateway (Regional)"
+  description = "WAF-for-API-Gateway-Regional"
   scope       = "REGIONAL"
 
   default_action {
