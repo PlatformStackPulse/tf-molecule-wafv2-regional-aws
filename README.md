@@ -1,6 +1,38 @@
 # tf-molecule-wafv2-regional-aws
 
-Terraform molecule (PlatformStackPulse). See the module documentation below.
+Terraform molecule that provisions a **REGIONAL AWS WAFv2 Web ACL** and associates it with a regional resource (typically an API Gateway stage) to protect it with AWS managed rule groups and IP-based rate limiting.
+
+## Features
+
+- **Regional WAFv2 Web ACL** with a default `allow` action, ready to attach to API Gateway, ALB, or App Runner.
+- **AWS managed rule groups** attached via the `managed_rules` input (defaults to Common, Known Bad Inputs, and SQLi rule sets), each with CloudWatch metrics and sampled requests enabled.
+- **IP-based rate limiting** through a built-in rate-based rule (`rate_limit`, default `2000` requests / 5-minute window) that blocks abusive source IPs.
+- **Automatic resource association** — the Web ACL is bound to the `resource_arn` you supply via `aws_wafv2_web_acl_association`.
+- **tf-label naming & tagging** — consistent `id`/tag generation via the embedded `tf-label` context, and a full `enabled` toggle that creates zero resources when set to `false`.
+
+## Usage
+
+```hcl
+module "waf" {
+  source = "git::https://github.com/PlatformStackPulse/tf-molecule-wafv2-regional-aws.git?ref=v1.0.0"
+
+  namespace = "eg"
+  stage     = "prod"
+  name      = "api"
+
+  # ARN of the regional resource to protect (e.g. an API Gateway stage)
+  resource_arn = aws_api_gateway_stage.this.arn
+
+  # Optional: override the default managed rule groups
+  managed_rules = [
+    { name = "AWSManagedRulesCommonRuleSet", vendor = "AWS", priority = 10 },
+    { name = "AWSManagedRulesSQLiRuleSet", vendor = "AWS", priority = 30 },
+  ]
+
+  # Optional: requests per 5-minute period per source IP before blocking
+  rate_limit = 2000
+}
+```
 
 <!-- BEGIN_TF_DOCS -->
 ### Requirements
@@ -61,3 +93,22 @@ Terraform molecule (PlatformStackPulse). See the module documentation below.
 | <a name="output_web_acl_arn"></a> [web\_acl\_arn](#output\_web\_acl\_arn) | ARN of the WAFv2 Web ACL |
 | <a name="output_web_acl_id"></a> [web\_acl\_id](#output\_web\_acl\_id) | ID of the WAFv2 Web ACL |
 <!-- END_TF_DOCS -->
+
+## Tests
+
+Unit tests use the Terraform test framework with a mock AWS provider (no real AWS calls) and assert on plan-known values — the tf-label `id`, planned resource counts, and input pass-throughs.
+
+```bash
+# Run unit tests
+terraform init -backend=false
+terraform test -test-directory=tests/unit
+
+# Or via the Makefile
+make test-unit
+```
+
+Coverage:
+
+- `creates_when_enabled` — Web ACL is named after the tf-label id, exactly one is planned, and the association passes through `resource_arn`.
+- `wires_rules_when_enabled` — the Web ACL is `REGIONAL` scope and carries one rule per managed rule group plus the rate-limit rule.
+- `disabled_creates_nothing` — with `enabled = false`, no Web ACL or association is planned and `web_acl_arn` is empty.
